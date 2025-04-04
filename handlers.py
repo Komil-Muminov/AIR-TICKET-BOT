@@ -1,26 +1,34 @@
-import datetime
-from aiogram.dispatcher import FSMContext # type: ignore
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton # type: ignore
-from aiogram.dispatcher.filters.state import State, StatesGroup # type: ignore
+from aiogram import Router, F  # Используем F для фильтров
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import Command  # Добавляем импорт Command
 from keyboards import main_keyboard, routes_keyboard
 from admin import send_request_to_admin
+from datetime import datetime
 
-# Состояния для FSM (Finite State Machine)
+# Создаем роутер
+router = Router()
+
+# Состояния для FSM
 class Form(StatesGroup):
     route = State()
     date = State()
     passport_data = State()
 
 # Команда /start
+@router.message(Command('start'))  # Используем Command вместо commands
 async def send_welcome(message: Message):
     await message.reply("Привет! Я помогу вам отправить запрос на поиск авиабилетов.", reply_markup=main_keyboard)
 
 # Обработка кнопки "Отправить запрос"
-async def send_request(message: Message):
+@router.message(F.text == "Отправить запрос")  # Используем F.text для текстовых фильтров
+async def send_request(message: Message, state: FSMContext):
     await message.reply("Выберите маршрут:", reply_markup=routes_keyboard)
-    await Form.route.set()  # Устанавливаем состояние "route"
+    await state.set_state(Form.route)  # Устанавливаем состояние "route"
 
 # Обработка маршрута
+@router.message(Form.route)
 async def process_route(message: Message, state: FSMContext):
     route = message.text.strip()
     try:
@@ -32,9 +40,10 @@ async def process_route(message: Message, state: FSMContext):
 
     await state.update_data(route=route, origin=origin, destination=destination)
     await message.reply("Введите дату вылета в формате ДД.ММ.ГГГГ (например, 01.11.2023):")
-    await Form.date.set()  # Устанавливаем состояние "date"
+    await state.set_state(Form.date)  # Устанавливаем состояние "date"
 
 # Обработка даты
+@router.message(Form.date)
 async def process_date(message: Message, state: FSMContext):
     date = message.text
     if not is_valid_date(date):
@@ -48,7 +57,7 @@ async def process_date(message: Message, state: FSMContext):
     await send_request_to_admin(message, data)
 
     await message.reply("✅ Ваш запрос отправлен администратору. Ожидайте ответа.")
-    await state.finish()
+    await state.clear()  # Очищаем состояние
 
 # Валидация даты
 def is_valid_date(date_str):
@@ -57,11 +66,3 @@ def is_valid_date(date_str):
         return True
     except ValueError:
         return False
-
-# Регистрация обработчиков
-def register_handlers(dp):
-    from aiogram.dispatcher.filters import Text # type: ignore
-    dp.register_message_handler(send_welcome, commands=['start'])
-    dp.register_message_handler(send_request, Text(equals="Отправить запрос"))
-    dp.register_message_handler(process_route, state=Form.route)
-    dp.register_message_handler(process_date, state=Form.date)

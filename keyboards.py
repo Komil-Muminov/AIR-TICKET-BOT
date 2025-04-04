@@ -1,24 +1,23 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 # Клавиатура с основными командами
-main_keyboard = ReplyKeyboardMarkup(resize_keyboard=True).add(
-    KeyboardButton("Отправить запрос")
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Отправить запрос")]
+    ],
+    resize_keyboard=True
 )
 
 # Клавиатура с популярными маршрутами
-routes_keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=2).add(
-    KeyboardButton("Душанбе – Москва"),
-    KeyboardButton("Москва – Душанбе"),
-    KeyboardButton("Москва – Куляб"),
-    KeyboardButton("Куляб – Москва"),
-    KeyboardButton("Ташкент – Душанбе"),
-    KeyboardButton("Душанбе – Ташкент"),
-    KeyboardButton("Москва – Ташкент"),
-    KeyboardButton("Ташкент – Москва"),
-    KeyboardButton("Душанбе – Стамбул"),
-    KeyboardButton("Стамбул – Душанбе"),
-    KeyboardButton("Ташкент – Стамбул"),
-    KeyboardButton("Стамбул – Ташкент"),
-    KeyboardButton("Москва – Стамбул"),
-    KeyboardButton("Стамбул – Москва")
+routes_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Душанбе – Москва"), KeyboardButton(text="Москва – Душанбе")],
+        [KeyboardButton(text="Ташкент – Душанбе"), KeyboardButton(text="Душанбе – Ташкент")],
+        [KeyboardButton(text="Москва – Ташкент"), KeyboardButton(text="Ташкент – Москва")],
+        [KeyboardButton(text="Душанбе – Стамбул"), KeyboardButton(text="Стамбул – Душанбе")],
+        [KeyboardButton(text="Ташкент – Стамбул"), KeyboardButton(text="Стамбул – Ташкент")],
+        [KeyboardButton(text="Москва – Стамбул"), KeyboardButton(text="Стамбул – Москва")]
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=True
 )

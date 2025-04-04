@@ -1,17 +1,21 @@
-from aiogram import Bot, Dispatcher # type: ignore
-from aiogram.utils import executor # type: ignore
-from handlers import register_handlers
+from aiogram import Bot, Dispatcher
+from aiogram.types import Message
+from handlers import router  # Используем Router вместо register_handlers
 
 # Токен вашего бота
 API_TOKEN = '7656597937:AAEMbl4CgeWNpCQS3dseLdrYExDRXlhoiA4'
 
 # Создаем экземпляр бота
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
 
-# Регистрируем обработчики
-register_handlers(dp)
+# Создаем диспетчер и подключаем роутер
+dp = Dispatcher()
+dp.include_router(router)
 
 # Запуск бота
+async def main():
+    await dp.start_polling(bot)
+
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    import asyncio
+    asyncio.run(main())
