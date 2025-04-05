@@ -1,21 +1,41 @@
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from handlers import router  # Используем Router вместо register_handlers
+from aiogram.fsm.storage.memory import MemoryStorage
+import asyncio
+import logging
+import os
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
 
 # Токен вашего бота
 API_TOKEN = '7656597937:AAEMbl4CgeWNpCQS3dseLdrYExDRXlhoiA4'
+# ID администратора
+ADMIN_CHAT_ID = 5657657583
 
-# Создаем экземпляр бота
+# Директория для сохранения загружаемых изображений
+IMAGES_DIR = "uploaded_images"
+
+# Создаем директорию, если она не существует
+os.makedirs(IMAGES_DIR, exist_ok=True)
+
+# Создаем экземпляры бота и диспетчера
 bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-# Создаем диспетчер и подключаем роутер
-dp = Dispatcher()
-dp.include_router(router)
+# Импортируем роутеры после определения bot и dp
+from handlers import setup_routers
+
+# Настраиваем все роутеры
+setup_routers(dp, bot, ADMIN_CHAT_ID)
 
 # Запуск бота
 async def main():
-    await dp.start_polling(bot)
+    # Начинаем поллинг
+    await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Бот остановлен!")
