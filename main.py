@@ -31,6 +31,10 @@ setup_routers(dp, bot, ADMIN_CHAT_ID)
 
 # Запуск бота
 async def main():
+
+# Удаляем webhook, если он установлен
+    await bot.delete_webhook(drop_pending_updates=True)
+
     # Начинаем поллинг
     await dp.start_polling(bot, skip_updates=True)
 

@@ -10,6 +10,9 @@ import os
 import uuid
 from aiogram.types import ReplyKeyboardMarkup
 
+import json
+import qrcode
+
 
 # Инициализируем роутер
 router = Router()
@@ -197,28 +200,57 @@ async def process_purchase_decision(message: Message, state: FSMContext):
         if user_id in router.client_states:
             del router.client_states[user_id]
 
-# Обработчик ввода паспортных данных
 @router.message(lambda message: router.client_states.get(message.from_user.id, {}).get('state') == 'entering_passport')
 async def process_passport(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    passport_data = message.text.strip()
-    
-    # Сохраняем паспортные данные в состоянии клиента
     client_state = router.client_states.get(user_id, {})
-    client_state['passport_data'] = passport_data
-    router.client_states[user_id] = client_state
+
+    passport_data = None
+    scan_file_id = None
+    scan_type = None  # 'photo' или 'document'
+
+    if message.text:
+        passport_data = message.text.strip()
+    elif message.document:
+        scan_file_id = message.document.file_id
+        scan_type = "document"
+    elif message.photo:
+        scan_file_id = message.photo[-1].file_id
+        scan_type = "photo"
     
-    # Уведомляем клиента и предлагаем загрузить скан паспорта
-    await message.answer("Спасибо! При необходимости, вы можете прикрепить скан или фото паспорта. Если не требуется, нажмите 'Пропустить'.", 
-                       reply_markup=ReplyKeyboardMarkup(
-                           keyboard=[[KeyboardButton(text="Пропустить")]],
-                           resize_keyboard=True,
-                           one_time_keyboard=True
-                       ))
-    
-    # Обновляем состояние клиента
-    client_state['state'] = 'uploading_passport_scan'
+    if not passport_data and not scan_file_id:
+        await message.answer("Пожалуйста, введите данные паспорта текстом или отправьте скан.")
+        return
+
+    # Сохраняем введенные данные
+    client_state['passport_data'] = passport_data or "(данные на скане)"
+    client_state['passport_scan'] = {
+        "file_id": scan_file_id,
+        "type": scan_type
+    } if scan_file_id else None
+    client_state['state'] = 'waiting_for_eticket'
     router.client_states[user_id] = client_state
+
+    await message.answer("Ваши данные отправлены администратору. Ожидайте оформления билета.")
+
+    # Сообщение админу
+    admin_text = (f"🛂 Пользователь {message.from_user.full_name} (ID: {user_id}) отправил паспортные данные:\n"
+                  f"{client_state['passport_data']}\n")
+
+    admin_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Отправить электронный билет", callback_data=f"send_eticket_{user_id}")]
+    ])
+
+    await router.bot.send_message(router.admin_chat_id, admin_text)
+
+    if scan_file_id:
+        if scan_type == "photo":
+            await router.bot.send_photo(router.admin_chat_id, scan_file_id, reply_markup=admin_keyboard)
+        else:
+            await router.bot.send_document(router.admin_chat_id, scan_file_id, reply_markup=admin_keyboard)
+    else:
+        await router.bot.send_message(router.admin_chat_id, "Без скана паспорта.", reply_markup=admin_keyboard)
+
 
 # Обработчик загрузки скана паспорта
 @router.message(lambda message: router.client_states.get(message.from_user.id, {}).get('state') == 'uploading_passport_scan')
@@ -400,6 +432,125 @@ async def handle_image(message: Message):
     if not client_state or client_state not in ['uploading_passport_scan', 'confirming_eticket']:
         await message.answer("Получено изображение! Если вы хотите оформить билет, пожалуйста, нажмите 'Отправить запрос'.", 
                            reply_markup=main_keyboard)
+
+
+
+
+
+
+
+# ---------------
+
+# 1. Асинхронная обработка вложений
+async def handle_file(message, file_id, file_name):
+    file = await message.bot.get_file(file_id)
+    file_path = file.file_path
+    downloaded_file = await message.bot.download_file(file_path)
+    # Асинхронно сохраняем файл на диск, если нужно
+    with open(f"uploaded_files/{file_name}", "wb") as f:
+        f.write(downloaded_file)
+    return downloaded_file
+
+# 2. Сохранение истории заявок
+def save_request_to_history(request_data):
+    try:
+        with open('requests_history.json', 'r') as file:
+            history = json.load(file)
+    except FileNotFoundError:
+        history = []
+    
+    history.append(request_data)
+    
+    with open('requests_history.json', 'w') as file:
+        json.dump(history, file, indent=4)
+
+# 3. Уведомления и фоллоу-ап
+async def send_follow_up_notifications(user_id, message_text):
+    await asyncio.sleep(10)  # Задержка между уведомлениями
+    await bot.send_message(user_id, message_text)
+
+# 4. Интеграция с календарем (кнопки inline)
+def create_calendar_markup():
+    markup = InlineKeyboardMarkup()
+    for i in range(1, 32):  # Пример простого календаря на 31 день
+        markup.add(InlineKeyboardButton(str(i), callback_data=f"day_{i}"))
+    return markup
+
+@router.message(Form.date)
+async def process_date(message: Message, state: FSMContext):
+    date = message.text
+    if not is_valid_date(date):
+        await message.reply("Неверный формат даты. Пожалуйста, используйте формат ДД.ММ.ГГГГ.")
+        return
+
+    # Отправляем календарь
+    await message.answer("Выберите день из календаря:", reply_markup=create_calendar_markup())
+    await state.set_state(Form.date_selected)
+
+# 5. QR-код билета
+async def generate_qr_code(ticket_data):
+    qr = qrcode.make(ticket_data)
+    qr_path = f"tickets/{uuid.uuid4()}.png"
+    qr.save(qr_path)
+    return qr_path
+
+# 6. Автоформатирование текстов
+def format_ticket_options(ticket_text):
+    # Форматируем текст в виде списка с номерами
+    formatted_text = ""
+    tickets = ticket_text.split("\n")
+    for idx, ticket in enumerate(tickets, 1):
+        formatted_text += f"{bold(str(idx))}. {ticket}\n"
+    return formatted_text
+
+# Пример использования форматирования
+@router.message(Form.admin_sending_tickets)
+async def process_admin_tickets(message: Message, state: FSMContext):
+    data = await state.get_data()
+    user_id = data.get('current_user_id')
+
+    if message.text:
+        ticket_options = format_ticket_options(message.text)
+        await router.bot.send_message(
+            user_id,
+            f"📋 Доступные варианты билетов:\n\n{ticket_options}\n\nХотите приобрести билет?",
+            reply_markup=yes_no_keyboard
+        )
+    else:
+        await message.answer("Пожалуйста, отправьте список билетов в виде текста.")
+
+    await message.answer("Список билетов отправлен клиенту. Ожидайте ответа.")
+    # Изменяем состояние клиента
+    client_state = router.client_states.get(user_id, {})
+    client_state['state'] = 'waiting_for_purchase_decision'
+    router.client_states[user_id] = client_state
+
+# Сохраняем запросы в историю и отправляем уведомления
+@router.message(Form.confirm_details)
+async def confirm_details(message: Message, state: FSMContext):
+    if message.text.lower() == "да":
+        data = await state.get_data()
+        user_id = message.from_user.id
+        user_name = message.from_user.full_name
+
+        # Формируем текст запроса
+        request_text = (f"✈️ Новый запрос на поиск билета:\n"
+                        f"Маршрут: {data['route']}\n"
+                        f"Дата: {data['date']}\n"
+                        f"Пользователь: {user_name} (ID: {user_id})")
+
+        # Сохраняем запрос в историю
+        save_request_to_history(request_text)
+
+        await message.reply("✅ Ваш запрос отправлен администратору. Ожидайте, когда вам пришлют варианты билетов.")
+
+        # Отправляем уведомление пользователю через несколько минут
+        await send_follow_up_notifications(user_id, "Не забывайте следить за вашим запросом. Администратор скоро ответит.")
+
+        await state.set_state(Form.waiting_for_tickets)
+    else:
+        await message.answer("Запрос отменен. Вы можете начать заново.", reply_markup=main_keyboard)
+        await state.clear()
 
 # Функция для инициализации роутера с экземпляром бота
 def setup_routers(dp, bot, admin_chat_id):
